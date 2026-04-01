@@ -1,0 +1,29 @@
+package com.example.cardslistpoccompose
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Modifier
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.cardslistpoccompose.navigation.AppNavHost
+import com.example.cardslistpoccompose.ui.theme.CardsListPOCComposeTheme
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        setContent {
+            CardsListPOCComposeTheme {
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    AppNavHost(
+                        viewModel = viewModel(),
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
+    }
+}
