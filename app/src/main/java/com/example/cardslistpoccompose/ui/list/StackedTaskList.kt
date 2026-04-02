@@ -1,6 +1,8 @@
 package com.example.cardslistpoccompose.ui.list
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
@@ -8,8 +10,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -22,42 +24,62 @@ import androidx.compose.ui.zIndex
 import com.example.cardslistpoccompose.model.OnboardingTask
 import kotlin.math.abs
 
-private val CardExpandedHeight = 280.dp
-private val CardCollapsedHeight = 88.dp
+/** Fraction of list viewport height; slightly reduced so more room shows below the focused card. */
+private const val CardHeightFraction = 0.51f
 
-private const val MIN_SCALE = 0.85f
+private val CardHeightMin = 240.dp
+private val CardHeightMax = 392.dp
+
+/** Vertical gutter between card slots (XML: clear gap, next card header not tucked under focus). */
+private val ItemSpacing = 16.dp
+
 private const val MIN_ALPHA = 0.5f
-private const val MAX_TRANSLATE_FACTOR = 0.55f
-private val NextPeek = 22.dp
-private const val FocusLineFactor = 0.35f
-private const val MIN_ALPHA_NEXT = 0.8f
+private const val MAX_TRANSLATE_FACTOR = 0.58f
+private const val FocusLineFactor = 0.34f
+private const val MIN_ALPHA_NEXT = 0.85f
 
+/** XML: cards above the focus peek slightly narrower (wallet stack); focus and next stay full width. */
+private const val BackCardScaleMin = 0.94f
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun StackedTaskList(
     tasks: List<OnboardingTask>,
+    listState: LazyListState,
     modifier: Modifier = Modifier,
     onTaskClick: (OnboardingTask) -> Unit,
 ) {
     if (tasks.isEmpty()) return
 
-    val listState = rememberLazyListState()
     val density = LocalDensity.current
 
     BoxWithConstraints(modifier = modifier) {
-        val verticalPadding = ((maxHeight - CardExpandedHeight) / 2).coerceAtLeast(0.dp)
-        val cardHeightPx = with(density) { CardExpandedHeight.toPx() }
+        val cardHeight = (maxHeight * CardHeightFraction).coerceIn(CardHeightMin, CardHeightMax)
+
+        val viewportHeightPx = with(density) { maxHeight.toPx() }
+        val cardHeightPx = with(density) { cardHeight.toPx() }
         val maxTranslatePx = cardHeightPx * MAX_TRANSLATE_FACTOR
-        val nextPeekPx = with(density) { NextPeek.toPx() }
+
+        val topPadding = with(density) {
+            (viewportHeightPx * FocusLineFactor - cardHeightPx / 2f).coerceAtLeast(0f).toDp()
+        }
+        val bottomPadding = with(density) {
+            (viewportHeightPx * (1f - FocusLineFactor) - cardHeightPx / 2f).coerceAtLeast(0f).toDp()
+        }
 
         val snapFlingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
 
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(vertical = verticalPadding),
+            contentPadding = PaddingValues(top = topPadding, bottom = bottomPadding),
+            verticalArrangement = Arrangement.spacedBy(ItemSpacing),
             flingBehavior = snapFlingBehavior,
         ) {
-            itemsIndexed(tasks, key = { _, task -> task.id }) { index, task ->
+            itemsIndexed(
+                items = tasks,
+                key = { _, task -> task.id },
+            ) { index, task ->
                 val position by remember {
                     derivedStateOf {
                         val info = listState.layoutInfo
@@ -78,48 +100,41 @@ fun StackedTaskList(
 
                 val absPos = abs(position).coerceAtMost(1f)
 
-                val scale = (MIN_SCALE + (1f - MIN_SCALE) * (1f - absPos))
-                    .coerceIn(MIN_SCALE, 1f)
-
-                val scaleNorm = ((scale - MIN_SCALE) / (1f - MIN_SCALE)).coerceIn(0f, 1f)
-                val alphaBase = (MIN_ALPHA + (1f - MIN_ALPHA) * scaleNorm)
-                    .coerceIn(MIN_ALPHA, 1f)
+                val alphaBase =
+                    (MIN_ALPHA + (1f - MIN_ALPHA) * (1f - absPos)).coerceIn(MIN_ALPHA, 1f)
                 val alpha =
                     if (position > 0f) alphaBase.coerceAtLeast(MIN_ALPHA_NEXT) else alphaBase
 
-                // Vertical stack:
-                // - previous cards (position < 0) are pulled DOWN behind the focused card
-                //   (equivalent to translationY = -cardHeight * position)
-                // - next card (position > 0) only peeks slightly (depth cue)
+                // Previous items: pull down behind focus. Next item: no upward translation —
+                // avoids sliding the next card under the focus (looked "cut off").
                 val translationYPx =
                     when {
-                        // previous: stack behind focused (downwards)
                         position < 0f -> (-cardHeightPx * position).coerceIn(0f, maxTranslatePx)
-                        // next: pull UP a bit to create a consistent peek
-                        position > 0f -> (-position * nextPeekPx).coerceIn(-nextPeekPx, 0f)
                         else -> 0f
                     }
 
-                // Focused on top; previous cards just behind focus; next card below everything.
-                val zIdx =
-                    when {
-                        absPos < 0.0001f -> 10f
-                        position < 0f -> 5f - absPos
-                        else -> -1f - absPos
-                    }
+                val zIdx = (1f - absPos) * 10f
 
-                // Layout slot is fixed to keep \"1 card in focus\" behavior stable.
-                // (Completed cards keep their internal UI collapsed, but the slot stays fixed.)
-                val height = CardExpandedHeight
+                val height = cardHeight
+
+                val scaleX =
+                    if (position < 0f) {
+                        BackCardScaleMin +
+                            (1f - BackCardScaleMin) * (1f - absPos).coerceIn(0f, 1f)
+                    } else {
+                        1f
+                    }
 
                 Box(
                     modifier = Modifier
+                        .animateItem()
                         .fillMaxWidth()
                         .height(height)
                         .zIndex(zIdx)
                         .graphicsLayer {
-                            scaleX = scale
-                            scaleY = scale
+                            this.scaleX = scaleX
+                            scaleY = 1f
+                            clip = false
                             this.alpha = alpha
                             this.translationY = translationYPx
                         },

@@ -39,6 +39,7 @@ fun AppNavHost(
         composable(AppDestinations.LIST) {
             TaskListScreen(
                 tasks = tasks,
+                viewModel = viewModel,
                 onCloseClick = { (context as? Activity)?.finish() },
                 onTaskClick = { task ->
                     if (!task.isCompleted) {
@@ -59,7 +60,7 @@ fun AppNavHost(
             TaskDetailScreen(
                 taskTitle = title,
                 onCompleteClick = {
-                    if (taskId.isNotEmpty()) viewModel.completeTask(taskId)
+                    if (taskId.isNotEmpty()) viewModel.scheduleTaskCompletion(taskId)
                     navController.popBackStack()
                 },
             )
